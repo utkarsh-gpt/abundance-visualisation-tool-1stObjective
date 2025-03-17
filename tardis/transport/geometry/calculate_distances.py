@@ -2,22 +2,16 @@ import math
 
 from numba import njit
 
-from tardis.montecarlo.montecarlo_numba import (
+from tardis.transport.montecarlo import (
     njit_dict_no_parallel,
 )
-
-import tardis.montecarlo.montecarlo_numba.numba_config as nc
-from tardis.montecarlo.montecarlo_numba.numba_config import (
+from tardis.transport.montecarlo.configuration.constants import (
     C_SPEED_OF_LIGHT,
+    CLOSE_LINE_THRESHOLD,
     MISS_DISTANCE,
     SIGMA_THOMSON,
-    CLOSE_LINE_THRESHOLD,
 )
-
-from tardis.montecarlo.montecarlo_numba.utils import MonteCarloException
-from tardis.montecarlo.montecarlo_numba.r_packet import (
-    print_r_packet_properties,
-)
+from tardis.transport.montecarlo.utils import MonteCarloException
 
 
 @njit(**njit_dict_no_parallel)
@@ -36,7 +30,6 @@ def calculate_distance_boundary(r, mu, r_inner, r_outer):
     r_outer : float
        outer radius of current shell
     """
-
     delta_shell = 0
     if mu > 0.0:
         # direction outward
@@ -64,14 +57,19 @@ def calculate_distance_boundary(r, mu, r_inner, r_outer):
 
 @njit(**njit_dict_no_parallel)
 def calculate_distance_line(
-    r_packet, comov_nu, is_last_line, nu_line, time_explosion
+    r_packet,
+    comov_nu,
+    is_last_line,
+    nu_line,
+    time_explosion,
+    enable_full_relativity,
 ):
     """
     Calculate distance until RPacket is in resonance with the next line
 
     Parameters
     ----------
-    r_packet : tardis.montecarlo.montecarlo_numba.r_packet.RPacket
+    r_packet : tardis.transport.montecarlo.r_packet.RPacket
     comov_nu : float
         comoving frequency at the CURRENT position of the RPacket
     is_last_line : bool
@@ -84,7 +82,6 @@ def calculate_distance_line(
     Returns
     -------
     """
-
     nu = r_packet.nu
 
     if is_last_line:
@@ -101,7 +98,7 @@ def calculate_distance_line(
     else:
         raise MonteCarloException("nu difference is less than 0.0")
 
-    if nc.ENABLE_FULL_RELATIVITY:
+    if enable_full_relativity:
         return calculate_distance_line_full_relativity(
             nu_line, nu, time_explosion, r_packet
         )

@@ -1,10 +1,8 @@
 import logging
 
 import numpy as np
-import pandas as pd
-from astropy import units as u
-from tardis import constants as const
 
+from tardis import constants as const
 from tardis.plasma.properties.base import ProcessingPlasmaProperty
 
 logger = logging.getLogger(__name__)
@@ -12,13 +10,9 @@ logger = logging.getLogger(__name__)
 __all__ = [
     "BetaRadiation",
     "GElectron",
-    "NumberDensity",
-    "IsotopeNumberDensity",
     "SelectedAtoms",
     "ElectronTemperature",
     "BetaElectron",
-    "LuminosityInner",
-    "TimeSimulation",
     "ThermalGElectron",
 ]
 
@@ -35,7 +29,7 @@ class BetaRadiation(ProcessingPlasmaProperty):
     latex_formula = (r"\dfrac{1}{k_{B} T_{\textrm{rad}}}",)
 
     def __init__(self, plasma_parent):
-        super(BetaRadiation, self).__init__(plasma_parent)
+        super().__init__(plasma_parent)
         self.k_B_cgs = const.k_B.cgs.value
 
     def calculate(self, t_rad):
@@ -76,65 +70,7 @@ class ThermalGElectron(GElectron):
     )
 
     def calculate(self, beta_electron):
-        return super(ThermalGElectron, self).calculate(beta_electron)
-
-
-class NumberDensity(ProcessingPlasmaProperty):
-    """
-    Attributes
-    ----------
-    number_density : Pandas DataFrame, dtype float
-                     Indexed by atomic number, columns corresponding to zones
-    """
-
-    outputs = ("number_density",)
-    latex_name = ("N_{i}",)
-
-    @staticmethod
-    def calculate(atomic_mass, abundance, density):
-        number_densities = abundance * density
-        return number_densities.div(atomic_mass.loc[abundance.index], axis=0)
-
-
-class IsotopeNumberDensity(ProcessingPlasmaProperty):
-    """
-    Calculate the atom number density based on isotope mass.
-
-    Attributes
-    ----------
-    isotope_number_density : Pandas DataFrame, dtype float
-                     Indexed by atomic number, columns corresponding to zones
-    """
-
-    outputs = ("isotope_number_density",)
-    latex_name = ("N_{i}",)
-
-    @staticmethod
-    def calculate(isotope_mass, isotope_abundance, density):
-        """
-        Calculate the atom number density based on isotope mass.
-
-        Parameters
-        ----------
-        isotope_mass : pandas.DataFrame
-            Masses of isotopes.
-        isotope_abundance : pandas.DataFrame
-            Fractional abundance of isotopes.
-        density : pandas.DataFrame
-            Density of each shell.
-
-        Returns
-        -------
-        pandas.DataFrame
-            Indexed by atomic number, columns corresponding to zones.
-        """
-        number_densities = isotope_abundance * density
-        isotope_number_density_array = (
-            number_densities.to_numpy() / isotope_mass.to_numpy()
-        )
-        return pd.DataFrame(
-            isotope_number_density_array, index=isotope_abundance.index
-        )
+        return super().calculate(beta_electron)
 
 
 class SelectedAtoms(ProcessingPlasmaProperty):
@@ -147,8 +83,8 @@ class SelectedAtoms(ProcessingPlasmaProperty):
 
     outputs = ("selected_atoms",)
 
-    def calculate(self, abundance):
-        return abundance.index
+    def calculate(self, number_density):
+        return number_density.index
 
 
 class ElectronTemperature(ProcessingPlasmaProperty):
@@ -178,26 +114,8 @@ class BetaElectron(ProcessingPlasmaProperty):
     latex_formula = (r"\frac{1}{K_{B} T_{\textrm{electron}}}",)
 
     def __init__(self, plasma_parent):
-        super(BetaElectron, self).__init__(plasma_parent)
+        super().__init__(plasma_parent)
         self.k_B_cgs = const.k_B.cgs.value
 
     def calculate(self, t_electrons):
         return 1 / (self.k_B_cgs * t_electrons)
-
-
-class LuminosityInner(ProcessingPlasmaProperty):
-    outputs = ("luminosity_inner",)
-
-    @staticmethod
-    def calculate(r_inner, t_inner):
-        return (
-            4 * np.pi * const.sigma_sb.cgs * r_inner[0] ** 2 * t_inner**4
-        ).to("erg/s")
-
-
-class TimeSimulation(ProcessingPlasmaProperty):
-    outputs = ("time_simulation",)
-
-    @staticmethod
-    def calculate(luminosity_inner):
-        return 1.0 * u.erg / luminosity_inner

@@ -1,10 +1,11 @@
-import pandas as pd
-import numpy as np
 import copy
-import tardis
 
-from tardis.io.config_reader import Configuration
-from tardis.model import Radial1DModel
+import numpy as np
+import pandas as pd
+
+import tardis
+from tardis.io.configuration.config_reader import Configuration
+from tardis.model import SimulationState
 
 
 def _set_tardis_config_property(tardis_config, key, value):
@@ -29,10 +30,9 @@ def _set_tardis_config_property(tardis_config, key, value):
     for key in keyitems[1:-1]:
         tmp_dict = getattr(tmp_dict, key)
     setattr(tmp_dict, keyitems[-1], value)
-    return
 
 
-class tardisGrid:
+class TardisGrid:
     """
     A class that stores a grid of TARDIS parameters and
     facilitates running large numbers of simulations
@@ -66,8 +66,6 @@ class tardisGrid:
         self.config = tardis_config
         self.grid = gridFrame
 
-        return
-
     def grid_row_to_config(self, row_index):
         """
         Converts a grid row to a TARDIS config dict.
@@ -93,9 +91,9 @@ class tardisGrid:
             _set_tardis_config_property(tmp_config, colname, value)
         return tmp_config
 
-    def grid_row_to_model(self, row_index):
+    def grid_row_to_simulation_state(self, row_index, atomic_data):
         """
-        Generates a TARDIS Radial1DModel object using the base
+        Generates a TARDIS SimulationState object using the base
         self.config modified by the specified grid row.
 
         Parameters
@@ -105,11 +103,13 @@ class tardisGrid:
 
         Returns
         -------
-        model : tardis.model.base.Radial1DModel
+        model : tardis.model.base.SimulationState
         """
         rowconfig = self.grid_row_to_config(row_index)
-        model = Radial1DModel.from_config(rowconfig)
-        return model
+        simulation_state = SimulationState.from_config(
+            rowconfig, atom_data=atomic_data
+        )
+        return simulation_state
 
     def run_sim_from_grid(self, row_index, **tardiskwargs):
         """
@@ -141,7 +141,6 @@ class tardisGrid:
             File name to save grid.
         """
         self.grid.to_csv(filename, index=False)
-        return
 
     @classmethod
     def from_axes(cls, configFile, axesdict):

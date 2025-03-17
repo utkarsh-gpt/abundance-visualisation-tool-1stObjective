@@ -1,98 +1,35 @@
-import os
-
-import pytest
-import logging
-
-from tardis.io.config_reader import Configuration
-from tardis.simulation import Simulation
-from tardis import run_tardis
-
+import astropy.units as u
 import numpy as np
 import pandas as pd
-import pandas.util.testing as pdt
-import astropy.units as u
+import pytest
+
 import tardis
+from tardis.io.configuration.config_reader import Configuration
+from tardis.simulation import Simulation
 
 
 @pytest.fixture(scope="module")
-def refdata(tardis_ref_data):
-    def get_ref_data(key):
-        return tardis_ref_data[os.path.join("test_simulation", key)]
-
-    return get_ref_data
-
-
-@pytest.fixture(scope="module")
-def config():
+def config(example_configuration_dir):
     return Configuration.from_yaml(
-        "tardis/io/tests/data/tardis_configv1_verysimple.yml"
+        example_configuration_dir / "tardis_configv1_verysimple.yml"
     )
 
 
 @pytest.fixture(scope="module")
-def simulation_one_loop(
-    atomic_data_fname, config, tardis_ref_data, generate_reference
-):
+def simulation_one_loop(config, atomic_data_fname):
     config.atom_data = atomic_data_fname
     config.montecarlo.iterations = 2
     config.montecarlo.no_of_packets = int(4e4)
     config.montecarlo.last_no_of_packets = int(4e4)
 
-    simulation = Simulation.from_config(config)
-    simulation.run()
-
-    if not generate_reference:
-        return simulation
-    else:
-        simulation.hdf_properties = [
-            "iterations_w",
-            "iterations_t_rad",
-            "iterations_electron_densities",
-            "iterations_t_inner",
-        ]
-        simulation.model.hdf_properties = ["t_radiative", "dilution_factor"]
-        simulation.runner.hdf_properties = [
-            "j_estimator",
-            "nu_bar_estimator",
-            "output_nu",
-            "output_energy",
-        ]
-        simulation.to_hdf(
-            tardis_ref_data, "", "test_simulation", overwrite=True
-        )
-        simulation.model.to_hdf(
-            tardis_ref_data, "", "test_simulation", overwrite=True
-        )
-        simulation.runner.to_hdf(
-            tardis_ref_data, "", "test_simulation", overwrite=True
-        )
-        pytest.skip("Reference data was generated during this run.")
+    sim = Simulation.from_config(config)
+    sim.run_convergence()
+    sim.run_final()
+    return sim
 
 
 @pytest.mark.parametrize(
-    "name",
-    [
-        "nu_bar_estimator",
-        "j_estimator",
-        "t_radiative",
-        "dilution_factor",
-        "output_nu",
-        "output_energy",
-    ],
-)
-def test_plasma_estimates(simulation_one_loop, refdata, name):
-    try:
-        actual = getattr(simulation_one_loop.runner, name)
-    except AttributeError:
-        actual = getattr(simulation_one_loop.model, name)
-
-    actual = pd.Series(actual)
-
-    pdt.assert_almost_equal(actual, refdata(name))
-
-
-@pytest.mark.parametrize(
-    "name",
+    "attr",
     [
         "iterations_w",
         "iterations_t_rad",
@@ -100,20 +37,51 @@ def test_plasma_estimates(simulation_one_loop, refdata, name):
         "iterations_t_inner",
     ],
 )
-def test_plasma_state_iterations(simulation_one_loop, refdata, name):
-    actual = getattr(simulation_one_loop, name)
+def test_plasma_state_iterations(simulation_one_loop, attr, regression_data):
+    actual = getattr(simulation_one_loop, attr)
+    if hasattr(actual, "value"):
+        actual = actual.value
+    actual = pd.DataFrame(actual)
+    expected = regression_data.sync_dataframe(actual)
+    pd.testing.assert_frame_equal(actual, expected, rtol=1e-5, atol=1e-8)
 
-    try:
-        actual = pd.Series(actual)
-    except Exception:
-        actual = pd.DataFrame(actual)
 
-    pdt.assert_almost_equal(actual, refdata(name))
+@pytest.mark.parametrize(
+    "attr",
+    [
+        "nu_bar_estimator",
+        "j_estimator",
+        "t_radiative",
+        "dilution_factor",
+        "output_nus",
+        "output_energies",
+    ],
+)
+def test_plasma_estimates(simulation_one_loop, attr, regression_data):
+    if attr in ["nu_bar_estimator", "j_estimator"]:
+        actual = getattr(
+            simulation_one_loop.transport.transport_state.radfield_mc_estimators,
+            attr,
+        )
+    elif attr in ["t_radiative", "dilution_factor"]:
+        actual = getattr(simulation_one_loop.simulation_state, attr)
+    elif attr in ["output_nus", "output_energies"]:
+        actual = getattr(
+            simulation_one_loop.transport.transport_state.packet_collection,
+            attr,
+        )
+    else:
+        actual = getattr(simulation_one_loop.transport, attr)
+
+    if hasattr(actual, "value"):
+        actual = actual.value
+    actual = pd.Series(actual)
+    expected = regression_data.sync_dataframe(actual)
+    pd.testing.assert_series_equal(actual, expected, rtol=1e-5, atol=1e-8)
 
 
 @pytest.fixture(scope="module")
 def simulation_without_loop(atomic_data_fname, config):
-
     config.atom_data = atomic_data_fname
     config.montecarlo.iterations = 2
     return Simulation.from_config(config)
@@ -122,7 +90,6 @@ def simulation_without_loop(atomic_data_fname, config):
 def test_plasma_state_storer_store(
     atomic_data_fname, config, simulation_without_loop
 ):
-
     simulation = simulation_without_loop
 
     w_test = np.linspace(0, 1, 20)
@@ -145,7 +112,6 @@ def test_plasma_state_storer_store(
 def test_plasma_state_storer_reshape(
     atomic_data_fname, config, simulation_without_loop
 ):
-
     simulation = simulation_without_loop
     simulation.reshape_plasma_state_store(0)
 
@@ -155,10 +121,5 @@ def test_plasma_state_storer_reshape(
     assert simulation.iterations_t_inner.shape == (1,)
 
 
-#     assert_quantity_allclose(
-#             t_rad, simulation_compare_data['test1/t_rad'] * u.Unit('K'), atol=0.0 * u.Unit('K'))
-
-
 def test_version_tag(simulation_without_loop):
-    simulation = simulation_without_loop
-    assert simulation.version == tardis.__version__
+    assert simulation_without_loop.version == tardis.__version__

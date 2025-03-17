@@ -1,11 +1,11 @@
-import pytest
 import logging
 
-from tardis.io.config_reader import Configuration
-from tardis.simulation import Simulation
-from tardis.io.logger.logger import LOGGING_LEVELS
-from tardis import run_tardis
 import pytest
+
+from tardis import run_tardis
+from tardis.io.configuration.config_reader import Configuration
+from tardis.io.logger.logger import LOGGING_LEVELS
+from tardis.simulation import Simulation
 
 pytestmark = pytest.mark.skip(
     reason="logging testing slow and disabled for now"
@@ -23,7 +23,8 @@ def test_logging_simulation(atomic_data_fname, caplog):
 
     simulation = Simulation.from_config(config)
 
-    simulation.run()
+    simulation.run_convergence()
+    simulation.run_final()
 
     for record in caplog.records:
         assert record.levelno >= logging.INFO
@@ -66,7 +67,7 @@ class TestSimulationLogging:
             specific_log_level=specific_log_level,
         )
         for record in caplog.records:
-            if specific_log_level == True:
+            if specific_log_level is True:
                 assert record.levelno == LOGGING_LEVELS[log_level.upper()]
             else:
                 assert record.levelno >= LOGGING_LEVELS[log_level.upper()]
@@ -84,7 +85,7 @@ class TestSimulationLogging:
         caplog.clear()
         run_tardis(config=config)
         for record in caplog.records:
-            if specific_log_level == True:
+            if specific_log_level is True:
                 assert record.levelno == LOGGING_LEVELS[log_level.upper()]
             else:
                 assert record.levelno >= LOGGING_LEVELS[log_level.upper()]
@@ -106,7 +107,7 @@ class TestSimulationLogging:
             specific_log_level=specific_log_level,
         )
         for record in caplog.records:
-            if specific_log_level == True:
+            if specific_log_level is True:
                 assert record.levelno == LOGGING_LEVELS[log_level.upper()]
             else:
                 assert record.levelno >= LOGGING_LEVELS[log_level.upper()]

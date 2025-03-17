@@ -1,7 +1,9 @@
 """Convergence Plots to see the convergence of the simulation in real time."""
+
 from collections import defaultdict
 import matplotlib.cm as cm
 import matplotlib.colors as clr
+import numpy as np
 import plotly.graph_objects as go
 from IPython.display import display
 import matplotlib as mpl
@@ -9,6 +11,17 @@ import ipywidgets as widgets
 from contextlib import suppress
 from traitlets import TraitError
 from astropy import units as u
+
+
+# Added the below as a (temporary) workaround to the latex
+# labels on the convergence plots not rendering correctly.
+import plotly
+from IPython.display import display, HTML
+
+plotly.offline.init_notebook_mode()
+display(HTML(
+    '<script type="text/javascript" async src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.1/MathJax.js?config=TeX-MML-AM_SVG"></script>'
+))
 
 
 def transition_colors(length, name="jet"):
@@ -26,7 +39,7 @@ def transition_colors(length, name="jet"):
     -------
     colors: list
     """
-    cmap = mpl.cm.get_cmap(name, length)
+    cmap = mpl.pyplot.get_cmap(name, length)
     colors = []
     for i in range(cmap.N):
         rgb = cmap(i)[:3]
@@ -310,10 +323,12 @@ class ConvergencePlots(object):
     def update_plasma_plots(self):
         """Update plasma convergence plots every iteration."""
         # convert velocity to km/s
-        x = self.iterable_data["velocity"].to(u.km / u.s).value.tolist()
+        velocity_km_s = (
+            self.iterable_data["velocity"].to(u.km / u.s).value.tolist()
+        )
 
         # add luminosity data in hover data in plasma plots
-        customdata = len(x) * [
+        customdata = len(velocity_km_s) * [
             "<br>"
             + "Emitted Luminosity: "
             + f'{self.value_data["Emitted"][-1]:.4g}'
@@ -327,9 +342,12 @@ class ConvergencePlots(object):
 
         # add a radiation temperature vs shell velocity trace to the plasma plot
         self.plasma_plot.add_scatter(
-            x=x,
-            y=self.iterable_data["t_rad"],
+            x=velocity_km_s,
+            y=np.append(
+                self.iterable_data["t_rad"], self.iterable_data["t_rad"][-1:]
+            ),
             line_color=self.plasma_colorscale[self.current_iteration - 1],
+            line_shape="hv",
             row=1,
             col=1,
             name=self.current_iteration,
@@ -341,9 +359,10 @@ class ConvergencePlots(object):
 
         # add a dilution factor vs shell velocity trace to the plasma plot
         self.plasma_plot.add_scatter(
-            x=x,
-            y=self.iterable_data["w"],
+            x=velocity_km_s,
+            y=np.append(self.iterable_data["w"], self.iterable_data["w"][-1:]),
             line_color=self.plasma_colorscale[self.current_iteration - 1],
+            line_shape="hv",
             row=1,
             col=2,
             legendgroup=f"group-{self.current_iteration}",
@@ -424,7 +443,7 @@ class ConvergencePlots(object):
 
         # the display function expects a Widget, while
         # fig.show() returns None, which causes the TraitError.
-        if export_convergence_plots:
+        if export_convergence_plots and (self.plasma_plot is not None):
             with suppress(TraitError):
                 display(
                     widgets.VBox(

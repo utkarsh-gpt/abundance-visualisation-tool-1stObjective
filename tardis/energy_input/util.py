@@ -1,9 +1,10 @@
 import astropy.units as u
-import tardis.constants as const
 import numpy as np
 from numba import njit
 
-from tardis.montecarlo.montecarlo_numba import njit_dict_no_parallel
+import tardis.constants as const
+from tardis.opacities.opacities import kappa_calculation
+from tardis.transport.montecarlo import njit_dict_no_parallel
 
 R_ELECTRON_SQUARED = (const.a0.cgs.value * const.alpha.cgs.value**2.0) ** 2.0
 ELECTRON_MASS_ENERGY_KEV = (const.m_e * const.c**2.0).to("keV").value
@@ -41,7 +42,8 @@ def spherical_to_cartesian(r, theta, phi):
 def get_random_unit_vector():
     """Generate a random unit vector
 
-    Returns:
+    Returns
+    -------
         array: random unit vector
     """
     theta = get_random_theta_photon()
@@ -53,7 +55,7 @@ def get_random_unit_vector():
 
 
 @njit(**njit_dict_no_parallel)
-def doppler_gamma(direction_vector, position_vector, time):
+def doppler_factor_3d(direction_vector, position_vector, time):
     """Doppler shift for photons in 3D
 
     Parameters
@@ -68,7 +70,33 @@ def doppler_gamma(direction_vector, position_vector, time):
         Doppler factor
     """
     velocity_vector = position_vector / time
-    return 1 - (np.dot(direction_vector, velocity_vector) / C_CGS)
+    direction_vector_contiguous = np.ascontiguousarray(direction_vector)
+    velocity_vector_contiguous = np.ascontiguousarray(velocity_vector)
+    return 1 - (
+        np.dot(direction_vector_contiguous, velocity_vector_contiguous) / C_CGS
+    )
+
+
+@njit(**njit_dict_no_parallel)
+def doppler_factor_3D_all_packets(direction_vectors, position_vectors, times):
+    """Doppler shift for photons in 3D
+
+    Parameters
+    ----------
+    direction_vectors : array
+    position_vectors : array
+    times : array
+
+    Returns
+    -------
+    array
+        Doppler factors
+    """
+    velocity_vector = position_vectors / times
+    vel_mul_dir = np.multiply(velocity_vector, direction_vectors)
+    doppler_factors = 1 - (np.sum(vel_mul_dir, axis=0) / C_CGS)
+
+    return doppler_factors
 
 
 @njit(**njit_dict_no_parallel)
@@ -102,25 +130,6 @@ def angle_aberration_gamma(direction_vector, position_vector, time):
     output_vector = (direction_vector - (velocity_vector * factor_b)) / factor_a
 
     return output_vector
-
-
-@njit(**njit_dict_no_parallel)
-def kappa_calculation(energy):
-    """
-    Calculates kappa for various other calculations
-    i.e. energy normalized to electron rest energy
-    511.0 KeV
-
-    Parameters
-    ----------
-    energy : float
-
-    Returns
-    -------
-    kappa : float
-
-    """
-    return energy / ELECTRON_MASS_ENERGY_KEV
 
 
 @njit(**njit_dict_no_parallel)
@@ -182,13 +191,13 @@ def solve_quadratic_equation(position, direction, radius):
     a = np.sum(direction**2)
     b = 2.0 * np.sum(position * direction)
     c = -(radius**2) + np.sum(position**2)
-    root = b**2 - 4 * a * c
+    discriminant = b**2 - 4 * a * c
     solution_1 = -np.inf
     solution_2 = -np.inf
-    if root > 0.0:
-        solution_1 = (-b + np.sqrt(root)) / (2 * a)
-        solution_2 = (-b - np.sqrt(root)) / (2 * a)
-    elif root == 0:
+    if discriminant > 0.0:
+        solution_1 = (-b + np.sqrt(discriminant)) / (2 * a)
+        solution_2 = (-b - np.sqrt(discriminant)) / (2 * a)
+    elif discriminant == 0:
         solution_1 = -b / (2 * a)
 
     return solution_1, solution_2
@@ -216,13 +225,13 @@ def solve_quadratic_equation_expanding(position, direction, time, radius):
     a = np.dot(direction, direction) - (radius / light_distance) ** 2.0
     b = 2.0 * (np.dot(position, direction) - radius**2.0 / light_distance)
     c = np.dot(position, position) - radius**2.0
-    root = b**2.0 - 4.0 * a * c
+    discriminant = b**2.0 - 4.0 * a * c
     solution_1 = -np.inf
     solution_2 = -np.inf
-    if root > 0.0:
-        solution_1 = (-b + np.sqrt(root)) / (2.0 * a)
-        solution_2 = (-b - np.sqrt(root)) / (2.0 * a)
-    elif root == 0:
+    if discriminant > 0.0:
+        solution_1 = (-b + np.sqrt(discriminant)) / (2.0 * a)
+        solution_2 = (-b - np.sqrt(discriminant)) / (2.0 * a)
+    elif discriminant == 0:
         solution_1 = -b / (2.0 * a)
 
     return solution_1, solution_2
@@ -236,9 +245,9 @@ def klein_nishina(energy, theta_C):
     https://en.wikipedia.org/wiki/Klein%E2%80%93Nishina_formula
 
     .. math::
-        \frac{r_e}{2} [1 + \kappa (1 - \cos\theta_C)]^{-2} \left( 1 + \cos^2\theta_C + \frac{\kappa^2 (1 - \cos\theta_C)^2}{1 + \kappa(1 - \cos\theta_C)}\right)
+        \frac{r_e}{2} [1 + \\kappa (1 - \\cos\theta_C)]^{-2} \\left( 1 + \\cos^2\theta_C + \frac{\\kappa^2 (1 - \\cos\theta_C)^2}{1 + \\kappa(1 - \\cos\theta_C)}\right)
 
-    where :math:`\kappa = E / (m_e c^2)`
+    where :math:`\\kappa = E / (m_e c^2)`
 
     Parameters
     ----------
@@ -246,6 +255,7 @@ def klein_nishina(energy, theta_C):
         Packet energy
     theta_C : float
         Compton angle
+
     Returns
     -------
     float
@@ -293,6 +303,7 @@ def compton_theta_distribution(energy, sample_resolution=100):
 @njit(**njit_dict_no_parallel)
 def get_random_theta_photon():
     """Get a random theta direction between 0 and pi
+
     Returns
     -------
     float
@@ -403,3 +414,26 @@ def get_index(value, array):
         i += 1
 
     return i
+
+
+def make_isotope_string_tardis_like(isotope_dict):
+    """Converts isotope string to TARDIS format
+        Ni-56 -> Ni56, Co-56 -> Co56
+    Parameters
+    ----------
+    isotope : str
+        Isotope string
+
+    Returns
+    -------
+    str
+        TARDIS-like isotope string
+    """
+
+    new_isotope_dict = {}
+
+    for key in isotope_dict.keys():
+        new_key = key.replace("-", "")
+        new_isotope_dict[new_key] = isotope_dict[key]
+
+    return new_isotope_dict

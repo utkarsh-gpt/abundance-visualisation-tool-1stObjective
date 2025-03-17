@@ -2,6 +2,7 @@ import pytest
 import numpy as np
 import pandas.testing as pdt
 
+from tardis.tests.test_util import monkeysession
 from tardis.visualization.widgets.shell_info import (
     BaseShellInfo,
     SimulationShellInfo,
@@ -13,9 +14,9 @@ from tardis.visualization.widgets.shell_info import (
 @pytest.fixture(scope="class")
 def base_shell_info(simulation_verysimple):
     return BaseShellInfo(
-        simulation_verysimple.model.t_radiative,
-        simulation_verysimple.model.w,
-        simulation_verysimple.plasma.abundance,
+        simulation_verysimple.simulation_state.t_radiative,
+        simulation_verysimple.simulation_state.dilution_factor,
+        simulation_verysimple.simulation_state.abundance,
         simulation_verysimple.plasma.number_density,
         simulation_verysimple.plasma.ion_number_density,
         simulation_verysimple.plasma.level_number_density,
@@ -39,15 +40,16 @@ class TestBaseShellInfo:
     def test_shells_data(self, base_shell_info, simulation_verysimple):
         shells_data = base_shell_info.shells_data()
         assert shells_data.shape == (
-            len(simulation_verysimple.model.t_radiative),
+            len(simulation_verysimple.simulation_state.t_radiative),
             2,
         )
         assert np.allclose(
-            shells_data.iloc[:, 0].map(np.float),
-            simulation_verysimple.model.t_radiative.value,
+            shells_data.iloc[:, 0].map(np.float64),
+            simulation_verysimple.simulation_state.t_radiative.value,
         )
         assert np.allclose(
-            shells_data.iloc[:, 1].map(np.float), simulation_verysimple.model.w
+            shells_data.iloc[:, 1].map(np.float64),
+            simulation_verysimple.simulation_state.dilution_factor,
         )
 
     @pytest.mark.parametrize("shell_num", [1, 20])
@@ -56,12 +58,14 @@ class TestBaseShellInfo:
     ):
         element_count_data = base_shell_info.element_count(1)
         assert element_count_data.shape == (
-            len(simulation_verysimple.plasma.abundance[shell_num - 1]),
+            len(
+                simulation_verysimple.simulation_state.abundance[shell_num - 1]
+            ),
             2,
         )
         assert np.allclose(
-            element_count_data.iloc[:, -1].map(np.float),
-            simulation_verysimple.plasma.abundance[shell_num - 1],
+            element_count_data.iloc[:, -1].map(np.float64),
+            simulation_verysimple.simulation_state.abundance[shell_num - 1],
         )
 
     @pytest.mark.parametrize(("atomic_num", "shell_num"), [(12, 1), (20, 20)])
@@ -81,7 +85,7 @@ class TestBaseShellInfo:
         )
         assert ion_count_data.shape == (len(sim_ion_number_density), 2)
         assert np.allclose(
-            ion_count_data.iloc[:, -1].map(np.float),
+            ion_count_data.iloc[:, -1].map(np.float64),
             sim_ion_number_density / sim_element_number_density,
         )
 
@@ -111,7 +115,7 @@ class TestBaseShellInfo:
         )
         assert level_count_data.shape == (len(sim_level_number_density), 1)
         assert np.allclose(
-            level_count_data.iloc[:, 0].map(np.float),
+            level_count_data.iloc[:, 0].map(np.float64),
             sim_level_number_density / sim_ion_number_density,
         )
 
@@ -137,8 +141,11 @@ class TestShellInfoWidget:
     select_ion_num = 3
 
     @pytest.fixture(scope="class")
-    def shell_info_widget(self, base_shell_info):
+    def shell_info_widget(self, base_shell_info, monkeysession):
         shell_info_widget = ShellInfoWidget(base_shell_info)
+        monkeysession.setattr(
+            "tardis.visualization.widgets.shell_info.is_notebook", lambda: True
+        )
         # To attach event listeners to table widgets of shell_info_widget
         _ = shell_info_widget.display()
         return shell_info_widget

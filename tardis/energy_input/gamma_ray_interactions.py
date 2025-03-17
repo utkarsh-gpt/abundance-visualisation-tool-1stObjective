@@ -1,20 +1,22 @@
 import numpy as np
 from numba import njit
 
-from tardis.montecarlo.montecarlo_numba import njit_dict_no_parallel
+from tardis.energy_input.GXPacket import GXPacketStatus
 from tardis.energy_input.util import (
-    get_random_unit_vector,
-    kappa_calculation,
-    euler_rodrigues,
-    compton_theta_distribution,
-    get_perpendicular_vector,
-    angle_aberration_gamma,
-    doppler_gamma,
     ELECTRON_MASS_ENERGY_KEV,
     H_CGS_KEV,
+    angle_aberration_gamma,
+    compton_theta_distribution,
+    doppler_factor_3d,
+    euler_rodrigues,
+    get_perpendicular_vector,
+    get_random_unit_vector,
 )
-from tardis.energy_input.GXPacket import GXPacketStatus
-from tardis.energy_input.calculate_opacity import compton_opacity_partial
+from tardis.opacities.opacities import (
+    compton_opacity_partial,
+    kappa_calculation,
+)
+from tardis.transport.montecarlo import njit_dict_no_parallel
 
 
 @njit(**njit_dict_no_parallel)
@@ -157,7 +159,6 @@ def get_compton_fraction_urilight(energy):
 
     accept = False
     while not accept:
-
         z = np.random.random(3)
         alpha1 = np.log(1.0 / x0)
         alpha2 = (1.0 - x0**2.0) / 2.0
@@ -194,10 +195,9 @@ def compton_scatter(photon, compton_angle):
     float64
         Photon phi direction
     """
-
     # get comoving frame direction
     comov_direction = angle_aberration_gamma(
-        photon.direction, photon.location, photon.time_current
+        photon.direction, photon.location, photon.time_start
     )
 
     # compute an arbitrary perpendicular vector to the comoving direction
@@ -231,7 +231,7 @@ def compton_scatter(photon, compton_angle):
 
     # Calculate the angle aberration of the final direction
     final_direction = angle_aberration_gamma(
-        final_compton_scattered_vector, photon.location, photon.time_current
+        final_compton_scattered_vector, photon.location, photon.time_start
     )
 
     return final_direction
@@ -253,7 +253,6 @@ def pair_creation_packet(packet):
     GXPacket
         outgoing packet
     """
-
     probability_gamma = (
         2 * ELECTRON_MASS_ENERGY_KEV / (H_CGS_KEV * packet.nu_cmf)
     )
@@ -266,13 +265,13 @@ def pair_creation_packet(packet):
 
     # Calculate aberration of the random angle for the rest frame
     final_direction = angle_aberration_gamma(
-        new_direction, packet.location, -1 * packet.time_current
+        new_direction, packet.location, -1 * packet.time_start
     )
 
     packet.direction = final_direction
 
-    doppler_factor = doppler_gamma(
-        packet.direction, packet.location, packet.time_current
+    doppler_factor = doppler_factor_3d(
+        packet.direction, packet.location, packet.time_start
     )
 
     packet.nu_cmf = ELECTRON_MASS_ENERGY_KEV / H_CGS_KEV

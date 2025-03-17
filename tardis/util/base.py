@@ -1,22 +1,24 @@
+import functools
 import logging
 import os
 import re
+import warnings
 from collections import OrderedDict
 
 import numexpr as ne
 import numpy as np
 import pandas as pd
-import yaml
-from tardis import constants
-from astropy import units as u
-from radioactivedecay import Nuclide, DEFAULTDATA
-from radioactivedecay.utils import parse_nuclide, Z_DICT
-
-import tardis
-from tardis.io.util import get_internal_data_path
-from IPython import get_ipython, display
 import tqdm
 import tqdm.notebook
+import yaml
+from astropy import units as u
+from IPython import display, get_ipython
+from radioactivedecay import DEFAULTDATA
+from radioactivedecay.utils import Z_DICT, parse_nuclide
+
+import tardis
+from tardis import constants
+from tardis.io.util import get_internal_data_path
 
 k_B_cgs = constants.k_B.cgs.value
 c_cgs = constants.c.cgs.value
@@ -30,7 +32,11 @@ tardis_dir = os.path.realpath(tardis.__path__[0])
 ATOMIC_SYMBOLS_DATA = (
     pd.read_csv(
         get_internal_data_path("atomic_symbols.dat"),
-        delim_whitespace=True,
+        # The argument `delim_whitespace` was changed to `sep`
+        #   because the first one is deprecated since version 2.2.0.
+        #   The regular expression means: the separation is one or
+        #   more spaces together (simple space, tabs, new lines).
+        sep=r"\s+",
         names=["atomic_number", "symbol"],
     )
     .set_index("atomic_number")
@@ -123,10 +129,9 @@ def roman_to_int(roman_string):
     int
         Returns integer representation of roman_string
     """
-
     NUMERALS_SET = set(list(zip(*NUMERAL_MAP))[1])
     roman_string = roman_string.upper()
-    if len(set(list(roman_string.upper())) - NUMERALS_SET) != 0:
+    if len(set(roman_string.upper()) - NUMERALS_SET) != 0:
         raise ValueError(f"{roman_string} does not seem to be a roman numeral")
     i = result = 0
     for integer, numeral in NUMERAL_MAP:
@@ -192,7 +197,7 @@ def create_synpp_yaml(radial1d_mdl, fname, shell_no=0, lines_db=None):
 
     Parameters
     ----------
-    radial1d_mdl : Radial1DModel
+    radial1d_mdl : SimulationState
         Inputted object that will be read into YAML file
     fname : str
         File name for the synpp yaml
@@ -205,7 +210,6 @@ def create_synpp_yaml(radial1d_mdl, fname, shell_no=0, lines_db=None):
     ValueError
         If the current dataset does not contain necessary reference files
     """
-
     logger.warning("Currently only works with Si and a special setup")
     if radial1d_mdl.atom_data.synpp_refs is not None:
         raise ValueError(
@@ -225,7 +229,6 @@ def create_synpp_yaml(radial1d_mdl, fname, shell_no=0, lines_db=None):
             logger.debug(
                 "Synpp Ref does not have valid KEY for ref_log_tau in Radial1D Model"
             )
-            pass
 
     relevant_synpp_refs = radial1d_mdl.atom_data.synpp_refs[
         radial1d_mdl.atom_data.synpp_refs["ref_log_tau"] > -50
@@ -241,10 +244,10 @@ def create_synpp_yaml(radial1d_mdl, fname, shell_no=0, lines_db=None):
         )
 
     yaml_reference["output"]["min_wl"] = float(
-        radial1d_mdl.runner.spectrum.wavelength.to("angstrom").value.min()
+        radial1d_mdl.transport.spectrum.wavelength.to("angstrom").value.min()
     )
     yaml_reference["output"]["max_wl"] = float(
-        radial1d_mdl.runner.spectrum.wavelength.to("angstrom").value.max()
+        radial1d_mdl.transport.spectrum.wavelength.to("angstrom").value.max()
     )
 
     # raise Exception("there's a problem here with units what units does synpp expect?")
@@ -358,7 +361,6 @@ def species_string_to_tuple(species_string):
     MalformedSpeciesError
         If the inputted string does not match the species format
     """
-
     try:
         element_symbol, ion_number_string = re.match(
             r"^(\w+)\s*(\d+)", species_string
@@ -387,7 +389,7 @@ def species_string_to_tuple(species_string):
                 f"Given ion number ('{ion_number_string}') could not be parsed"
             )
 
-    if ion_number > atomic_number:
+    if ion_number - 1 > atomic_number:
         raise ValueError(
             "Species given does not exist: ion number > atomic number"
         )
@@ -414,7 +416,6 @@ def parse_quantity(quantity_string):
     MalformedQuantityError
         If string is not properly formatted for Astropy Quantity
     """
-
     if not isinstance(quantity_string, str):
         raise MalformedQuantityError(quantity_string)
 
@@ -488,7 +489,6 @@ def reformat_element_symbol(element_string):
     str
         Returned reformatted element symbol
     """
-
     return element_string[0].upper() + element_string[1:].lower()
 
 
@@ -509,12 +509,11 @@ def is_valid_nuclide_or_elem(input_nuclide):
         Bool indicating if the input nuclide is contained in the decay dataset
         or is a valid element.
     """
-
     try:
         parse_nuclide(input_nuclide, DEFAULTDATA.nuclides, "ICRP-107")
         is_nuclide = True
     except:
-        is_nuclide = True if input_nuclide in Z_DICT.values() else False
+        is_nuclide = input_nuclide in Z_DICT.values()
 
     return is_nuclide
 
@@ -572,7 +571,7 @@ def convert_abundances_format(fname, delimiter=r"\s+"):
     """
     df = pd.read_csv(fname, delimiter=delimiter, comment="#", header=None)
     # Drop shell index column
-    df.drop(df.columns[0], axis=1, inplace=True)
+    df = df.drop(df.columns[0], axis=1)
     # Assign header row
     df.columns = [Z_DICT[i] for i in range(1, df.shape[1] + 1)]
     return df
@@ -761,3 +760,20 @@ def fix_bar_layout(bar, no_of_packets=None, total_iterations=None):
             bar.reset(total=total_iterations)
         else:
             pass
+
+
+def deprecated(func):
+    """
+    A decorator to add a deprecation warning to a function that is no longer used
+
+    Parameters
+    ----------
+    func : function
+    """
+
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        warnings.warn("This function is deprecated.", DeprecationWarning)
+        return func(*args, **kwargs)
+
+    return wrapper
